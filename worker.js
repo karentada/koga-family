@@ -11,10 +11,13 @@ const SYSTEM_PROMPT = `あなたは「家族のことを整理するAI」の記�
 - 「重要」「大事」「大切」と言われた場合、それが緊急性を意味するのか、将来必要になる情報なのか、価値のある情報なのかを必要に応じて確認する。
 - 予定を新規登録する発言と、予定を見たい質問を区別する。
 - 病院、医院、クリニック、施設、役所など、場所や関係先が発言に含まれている場合は place にその名称だけを入れる。
-- place に「今日」「明日」「昨日」などの日付表現や、「父」「母」などの対象者を含めない。
+- place に「今日」「明日」「明後日」「昨日」などの日付表現や、「父」「母」などの対象者を含めない。
 - 例：「父、明日田中病院へ行く」なら place は「田中病院」。
 - 例：「明日は父を倉敷中央病院に連れて行く」なら place は「倉敷中央病院」。
 - 場所が言われていなければ place は null。
+- date_phrase は原文の日付表現をできるだけ保持する。例: 今日、明日、明後日、昨日、9月20日、2026-09-20、来週火曜日。
+- time_phrase は原文の時刻表現をできるだけ保持する。例: 10時、10時30分、午後3時、15:30。
+- 「来週火曜日」「来月上旬」など、複数の解釈があり得る日付を勝手に具体的な日付へ変換しない。
 - 保存・変更・削除などは実行せず、整理結果だけ返す。
 - 一度に確認質問を複数出さず、必要なら1問だけ返す。
 - 分からないことを勝手に埋めない。
@@ -23,8 +26,8 @@ const SYSTEM_PROMPT = `あなたは「家族のことを整理するAI」の記�
 {
   "intent":"record|search|schedule|todo|contact|next_to_tell|emergency|other",
   "target":"父|母|父と母|その他|不明",
-  "date_phrase":"今日|明日|昨日|YYYY-MM-DD|その他|null",
-  "time_phrase":"HH:MM|時間不明|その他|null",
+  "date_phrase":"原文の日付表現|null",
+  "time_phrase":"原文の時刻表現|null",
   "place":"病院・施設・場所・関係先の名称|null",
   "tags":["カテゴリ"],
   "summary":"短い整理",
@@ -42,136 +45,29 @@ const HTML = String.raw`<!doctype html>
 <title>家族のことを整理するAI</title>
 
 <style>
-*{
-  box-sizing:border-box
-}
-
-body{
-  margin:0;
-  background:#f6f7f9;
-  color:#20242a;
-  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif
-}
-
-.shell{
-  max-width:760px;
-  margin:auto;
-  min-height:100vh;
-  background:white
-}
-
-header{
-  padding:20px;
-  border-bottom:1px solid #e5e7eb
-}
-
-h1{
-  margin:0;
-  font-size:23px
-}
-
-h2{
-  font-size:25px;
-  margin:18px 0
-}
-
-.sub,
-.muted{
-  color:#6b7280
-}
-
-.small{
-  font-size:13px
-}
-
-main{
-  padding:20px
-}
-
-.row{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap
-}
-
-button{
-  font:inherit;
-  padding:12px 16px;
-  border:1px solid #d1d5db;
-  border-radius:12px;
-  background:white
-}
-
-button.primary{
-  background:#111827;
-  color:#fff;
-  border-color:#111827
-}
-
-textarea,
-input,
-select{
-  width:100%;
-  font:inherit;
-  border:1px solid #d1d5db;
-  border-radius:12px;
-  padding:13px
-}
-
-textarea{
-  min-height:110px
-}
-
-.card{
-  border:1px solid #e5e7eb;
-  border-radius:16px;
-  padding:16px;
-  margin:14px 0
-}
-
-.label{
-  font-size:12px;
-  color:#6b7280;
-  margin-top:10px
-}
-
-.badge{
-  display:inline-block;
-  background:#f1f3f5;
-  border-radius:999px;
-  padding:4px 8px;
-  margin:3px;
-  font-size:12px
-}
-
-.notice{
-  padding:13px;
-  border-left:4px solid #64748b;
-  background:#f8fafc;
-  border-radius:8px
-}
-
-.error{
-  padding:13px;
-  border-left:4px solid #b91c1c;
-  background:#fef2f2;
-  border-radius:8px
-}
-
-.listItem{
-  padding:12px 0;
-  border-bottom:1px solid #eee
-}
-
-.listItem:last-child{
-  border-bottom:0
-}
-
-#homeBtn{
-  position:fixed;
-  right:16px;
-  bottom:16px
-}
+*{box-sizing:border-box}
+body{margin:0;background:#f6f7f9;color:#20242a;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif}
+.shell{max-width:760px;margin:auto;min-height:100vh;background:white}
+header{padding:20px;border-bottom:1px solid #e5e7eb}
+h1{margin:0;font-size:23px}
+h2{font-size:25px;margin:18px 0}
+.sub,.muted{color:#6b7280}
+.small{font-size:13px}
+main{padding:20px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+button{font:inherit;padding:12px 16px;border:1px solid #d1d5db;border-radius:12px;background:white}
+button.primary{background:#111827;color:#fff;border-color:#111827}
+textarea,input,select{width:100%;font:inherit;border:1px solid #d1d5db;border-radius:12px;padding:13px}
+textarea{min-height:110px}
+.card{border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin:14px 0}
+.label{font-size:12px;color:#6b7280;margin-top:10px}
+.badge{display:inline-block;background:#f1f3f5;border-radius:999px;padding:4px 8px;margin:3px;font-size:12px}
+.notice{padding:13px;border-left:4px solid #64748b;background:#f8fafc;border-radius:8px}
+.warning{padding:13px;border-left:4px solid #b45309;background:#fff7ed;border-radius:8px}
+.error{padding:13px;border-left:4px solid #b91c1c;background:#fef2f2;border-radius:8px}
+.listItem{padding:12px 0;border-bottom:1px solid #eee}
+.listItem:last-child{border-bottom:0}
+#homeBtn{position:fixed;right:16px;bottom:16px}
 </style>
 </head>
 
@@ -263,7 +159,7 @@ try{
 
   state =
     JSON.parse(
-      localStorage.getItem("carebot_v3") || "null"
+      localStorage.getItem("carebot_v4") || "null"
     ) || initial;
 
 }catch(e){
@@ -296,7 +192,7 @@ function esc(v){
 function save(){
 
   localStorage.setItem(
-    "carebot_v3",
+    "carebot_v4",
     JSON.stringify(state)
   );
 }
@@ -304,6 +200,467 @@ function save(){
 function set(html){
 
   app.innerHTML = html;
+}
+
+function pad2(n){
+
+  return String(n).padStart(
+    2,
+    "0"
+  );
+}
+
+function localDateString(d){
+
+  return (
+    d.getFullYear()+
+    "-"+
+    pad2(
+      d.getMonth()+1
+    )+
+    "-"+
+    pad2(
+      d.getDate()
+    )
+  );
+}
+
+function validDateParts(
+  y,
+  m,
+  d
+){
+
+  var x =
+    new Date(
+      y,
+      m-1,
+      d
+    );
+
+  return (
+    x.getFullYear() === y &&
+    x.getMonth() === m-1 &&
+    x.getDate() === d
+  );
+}
+
+function parseDateFromText(
+  text,
+  aiDate
+){
+
+  var now =
+    new Date();
+
+  var raw =
+    String(
+      aiDate || ""
+    ).trim();
+
+  var source =
+    (
+      text+
+      " "+
+      raw
+    ).trim();
+
+  var m;
+
+  m =
+    source.match(
+      /(20\d{2})[-\/年](\d{1,2})[-\/月](\d{1,2})日?/
+    );
+
+  if(m){
+
+    var y =
+      Number(m[1]);
+
+    var mo =
+      Number(m[2]);
+
+    var da =
+      Number(m[3]);
+
+    if(
+      validDateParts(
+        y,
+        mo,
+        da
+      )
+    ){
+
+      return {
+        value:
+          y+
+          "-"+
+          pad2(mo)+
+          "-"+
+          pad2(da),
+
+        ambiguous:false,
+
+        source:m[0]
+      };
+    }
+  }
+
+  m =
+    source.match(
+      /(\d{1,2})月(\d{1,2})日/
+    );
+
+  if(m){
+
+    var mm =
+      Number(m[1]);
+
+    var dd =
+      Number(m[2]);
+
+    var yy =
+      now.getFullYear();
+
+    if(
+      validDateParts(
+        yy,
+        mm,
+        dd
+      )
+    ){
+
+      return {
+        value:
+          yy+
+          "-"+
+          pad2(mm)+
+          "-"+
+          pad2(dd),
+
+        ambiguous:false,
+
+        source:m[0]
+      };
+    }
+  }
+
+  if(
+    /明後日/.test(source)
+  ){
+
+    var d2 =
+      new Date(now);
+
+    d2.setDate(
+      d2.getDate()+2
+    );
+
+    return {
+      value:
+        localDateString(d2),
+
+      ambiguous:false,
+
+      source:"明後日"
+    };
+  }
+
+  if(
+    /明日/.test(source)
+  ){
+
+    var d1 =
+      new Date(now);
+
+    d1.setDate(
+      d1.getDate()+1
+    );
+
+    return {
+      value:
+        localDateString(d1),
+
+      ambiguous:false,
+
+      source:"明日"
+    };
+  }
+
+  if(
+    /今日/.test(source)
+  ){
+
+    return {
+      value:
+        localDateString(now),
+
+      ambiguous:false,
+
+      source:"今日"
+    };
+  }
+
+  if(
+    /昨日/.test(source)
+  ){
+
+    var dy =
+      new Date(now);
+
+    dy.setDate(
+      dy.getDate()-1
+    );
+
+    return {
+      value:
+        localDateString(dy),
+
+      ambiguous:false,
+
+      source:"昨日"
+    };
+  }
+
+  if(
+    /来週|再来週|来月|再来月|上旬|中旬|下旬|月末|週末|次の[月火水木金土日]曜|来週[月火水木金土日]曜/.test(source)
+  ){
+
+    return {
+      value:"",
+      ambiguous:true,
+      source:
+        raw || text
+    };
+  }
+
+  if(
+    /^\d{4}-\d{2}-\d{2}$/.test(raw)
+  ){
+
+    return {
+      value:raw,
+      ambiguous:false,
+      source:raw
+    };
+  }
+
+  return {
+    value:"",
+    ambiguous:false,
+    source:raw
+  };
+}
+
+function parseTimeFromText(
+  text,
+  aiTime
+){
+
+  var raw =
+    String(
+      aiTime || ""
+    ).trim();
+
+  var source =
+    (
+      text+
+      " "+
+      raw
+    ).trim();
+
+  var m;
+  var h;
+  var min;
+  var pm;
+
+  m =
+    source.match(
+      /(午前|午後)\s*(\d{1,2})時(?:\s*(\d{1,2})分)?/
+    );
+
+  if(m){
+
+    pm =
+      m[1] === "午後";
+
+    h =
+      Number(m[2]);
+
+    min =
+      Number(
+        m[3] || 0
+      );
+
+    if(
+      h >= 1 &&
+      h <= 12 &&
+      min >= 0 &&
+      min <= 59
+    ){
+
+      if(
+        pm &&
+        h !== 12
+      ){
+
+        h += 12;
+      }
+
+      if(
+        !pm &&
+        h === 12
+      ){
+
+        h = 0;
+      }
+
+      return (
+        pad2(h)+
+        ":"+
+        pad2(min)
+      );
+    }
+  }
+
+  m =
+    source.match(
+      /(?:^|[^\d])(\d{1,2})時(?:\s*(\d{1,2})分)?/
+    );
+
+  if(m){
+
+    h =
+      Number(m[1]);
+
+    min =
+      Number(
+        m[2] || 0
+      );
+
+    if(
+      h >= 0 &&
+      h <= 23 &&
+      min >= 0 &&
+      min <= 59
+    ){
+
+      return (
+        pad2(h)+
+        ":"+
+        pad2(min)
+      );
+    }
+  }
+
+  m =
+    source.match(
+      /(?:^|[^\d])(\d{1,2}):(\d{2})(?:[^\d]|$)/
+    );
+
+  if(m){
+
+    h =
+      Number(m[1]);
+
+    min =
+      Number(m[2]);
+
+    if(
+      h >= 0 &&
+      h <= 23 &&
+      min >= 0 &&
+      min <= 59
+    ){
+
+      return (
+        pad2(h)+
+        ":"+
+        pad2(min)
+      );
+    }
+  }
+
+  return "";
+}
+
+function fallbackPlaceFromText(
+  text
+){
+
+  var cleaned =
+    text.replace(
+      /^(父|母|父と母)[、,\s]*/,
+      ""
+    );
+
+  cleaned =
+    cleaned.replace(
+      /^(今日|明日|明後日|昨日)[、,\s]*/,
+      ""
+    );
+
+  var m =
+    cleaned.match(
+      /([^、。,\s]*(?:病院|医院|クリニック|診療所|歯科|役所|センター|施設))/
+    );
+
+  if(!m){
+
+    return "";
+  }
+
+  return m[1].replace(
+    /^(今日|明日|明後日|昨日)/,
+    ""
+  );
+}
+
+function getPlace(
+  text,
+  ai
+){
+
+  if(
+    ai.place &&
+    String(
+      ai.place
+    ).trim()
+  ){
+
+    return String(
+      ai.place
+    ).trim();
+  }
+
+  return fallbackPlaceFromText(
+    text
+  );
+}
+
+function stablePurpose(
+  text,
+  ai
+){
+
+  var s =
+    String(
+      ai.summary || text
+    ).trim();
+
+  s =
+    s.replace(
+      /^(父|母|父と母)が?(今日|明日|明後日|昨日)[、,\s]*/,
+      "$1"
+    );
+
+  s =
+    s.replace(
+      /(今日|明日|明後日|昨日)[、,\s]*/g,
+      ""
+    );
+
+  return s;
 }
 
 function home(){
@@ -329,7 +686,7 @@ function home(){
       '自由に話してください'+
       '</div>'+
 
-      '<textarea id="free" placeholder="例：父、明日田中病院へ行く&#10;例：9月の予定を見せて&#10;例：まだ終わっていないことは？"></textarea>'+
+      '<textarea id="free" placeholder="例：父、明日田中病院へ行く&#10;例：9月20日10時30分に母が倉敷中央病院&#10;例：9月の予定を見せて"></textarea>'+
 
       '<button class="primary" id="sendBtn" style="margin-top:10px">'+
       '送る'+
@@ -339,11 +696,15 @@ function home(){
 
     '<div class="card">'+
 
-      '<b>今確認すること</b>'+
+      '<b>'+
+      '今確認すること'+
+      '</b>'+
 
       '<div class="listItem">'+
       '母の退院日 '+
-      '<span class="badge">確認待ち</span>'+
+      '<span class="badge">'+
+      '確認待ち'+
+      '</span>'+
       '</div>'+
 
       '<div class="listItem">'+
@@ -355,24 +716,29 @@ function home(){
 
   document.getElementById(
     "recordBtn"
-  ).onclick = recordStart;
+  ).onclick =
+    recordStart;
 
   document.getElementById(
     "checkBtn"
-  ).onclick = checkMenu;
+  ).onclick =
+    checkMenu;
 
   document.getElementById(
     "sendBtn"
-  ).onclick = function(){
+  ).onclick =
+    function(){
 
-    submitFree(false);
-  };
+      submitFree(false);
+    };
 }
 
 function recordStart(){
 
   set(
-    '<h2>どんな内容ですか？</h2>'+
+    '<h2>'+
+    'どんな内容ですか？'+
+    '</h2>'+
 
     '<textarea id="recordText" placeholder="そのまま話してください"></textarea>'+
 
@@ -383,33 +749,36 @@ function recordStart(){
 
   document.getElementById(
     "recordNext"
-  ).onclick = function(){
+  ).onclick =
+    function(){
 
-    var t =
-      document.getElementById(
-        "recordText"
-      ).value.trim();
+      var t =
+        document.getElementById(
+          "recordText"
+        ).value.trim();
 
-    if(!t){
+      if(!t){
 
-      alert(
-        "内容を入力してください"
+        alert(
+          "内容を入力してください"
+        );
+
+        return;
+      }
+
+      interpretThenRoute(
+        t,
+        false
       );
-
-      return;
-    }
-
-    interpretThenRoute(
-      t,
-      false
-    );
-  };
+    };
 }
 
 function checkMenu(){
 
   set(
-    '<h2>何を確認しますか？</h2>'+
+    '<h2>'+
+    '何を確認しますか？'+
+    '</h2>'+
 
     '<div class="row">'+
 
@@ -430,33 +799,39 @@ function checkMenu(){
 
   document.getElementById(
     "showAppts"
-  ).onclick = showAppointments;
+  ).onclick =
+    showAppointments;
 
   document.getElementById(
     "showTodos"
-  ).onclick = showTodos;
+  ).onclick =
+    showTodos;
 
   document.getElementById(
     "askText"
-  ).onclick = function(){
+  ).onclick =
+    function(){
 
-    set(
-      '<h2>何を知りたいですか？</h2>'+
+      set(
+        '<h2>'+
+        '何を知りたいですか？'+
+        '</h2>'+
 
-      '<textarea id="q"></textarea>'+
+        '<textarea id="q"></textarea>'+
 
-      '<button class="primary" id="askGo" style="margin-top:10px">'+
-      '確認する'+
-      '</button>'
-    );
+        '<button class="primary" id="askGo" style="margin-top:10px">'+
+        '確認する'+
+        '</button>'
+      );
 
-    document.getElementById(
-      "askGo"
-    ).onclick = function(){
+      document.getElementById(
+        "askGo"
+      ).onclick =
+        function(){
 
-      submitFree(true);
+          submitFree(true);
+        };
     };
-  };
 }
 
 function submitFree(
@@ -548,7 +923,9 @@ function interpretThenRoute(
       '</b><br>'+
 
       '<span class="small">'+
-      esc(err.message)+
+      esc(
+        err.message
+      )+
       '</span>'+
 
       '</div>'
@@ -566,21 +943,53 @@ function routeAI(
     isQuestionMode ||
     /[？?]|見せて|教えて|確認したい|何が|いつ|どこ/.test(text);
 
-  var hasDate =
-    /今日|明日|明後日|昨日|[0-9]{1,2}月[0-9]{1,2}日|[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(text);
-
   var eventVerb =
     /行く|受診|予約|通院|検査|入院|退院|面談|訪問|来る|連れて行く/.test(text);
 
+  var dateInfo =
+    parseDateFromText(
+      text,
+      ai.date_phrase
+    );
+
+  var timeValue =
+    parseTimeFromText(
+      text,
+      ai.time_phrase
+    );
+
+  var hasDateExpression =
+    !!(
+      dateInfo.value ||
+      dateInfo.ambiguous ||
+      ai.date_phrase
+    );
+
   if(
     !explicitQuestion &&
-    hasDate &&
+    hasDateExpression &&
     eventVerb
   ){
 
+    if(
+      dateInfo.ambiguous
+    ){
+
+      showAmbiguousDate(
+        text,
+        ai,
+        dateInfo,
+        timeValue
+      );
+
+      return;
+    }
+
     showAppointmentConfirm(
       text,
-      ai
+      ai,
+      dateInfo,
+      timeValue
     );
 
     return;
@@ -611,155 +1020,136 @@ function routeAI(
 
   showGeneralConfirm(
     text,
-    ai
+    ai,
+    dateInfo,
+    timeValue
   );
 }
 
-function normalizeDate(v){
-
-  if(!v){
-
-    return "";
-  }
-
-  if(
-    /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v)
-  ){
-
-    return v;
-  }
-
-  var d =
-    new Date();
-
-  if(
-    v === "明日"
-  ){
-
-    d.setDate(
-      d.getDate()+1
-    );
-
-  }else if(
-    v === "明後日"
-  ){
-
-    d.setDate(
-      d.getDate()+2
-    );
-
-  }else if(
-    v === "昨日"
-  ){
-
-    d.setDate(
-      d.getDate()-1
-    );
-
-  }else if(
-    v !== "今日"
-  ){
-
-    return v;
-  }
-
-  return (
-    d.getFullYear()+
-    "-"+
-    String(
-      d.getMonth()+1
-    ).padStart(
-      2,
-      "0"
-    )+
-    "-"+
-    String(
-      d.getDate()
-    ).padStart(
-      2,
-      "0"
-    )
-  );
-}
-
-function fallbackPlaceFromText(
-  text
-){
-
-  var cleaned =
-    text.replace(
-      /^(父|母|父と母)[、,\s]*/,
-      ""
-    );
-
-  cleaned =
-    cleaned.replace(
-      /^(今日|明日|明後日|昨日)[、,\s]*/,
-      ""
-    );
-
-  var m =
-    cleaned.match(
-      /([^、。,\s]*(?:病院|医院|クリニック|診療所|歯科|役所|センター))/
-    );
-
-  if(!m){
-
-    return "";
-  }
-
-  var place =
-    m[1];
-
-  place =
-    place.replace(
-      /^(今日|明日|明後日|昨日)/,
-      ""
-    );
-
-  return place;
-}
-
-function getPlace(
+function showAmbiguousDate(
   text,
-  ai
+  ai,
+  dateInfo,
+  timeValue
 ){
 
-  if(
-    ai.place &&
-    String(ai.place).trim()
-  ){
+  window.pendingAmbiguous = {
+    text:text,
+    ai:ai,
+    time:timeValue
+  };
 
-    return String(
-      ai.place
-    ).trim();
-  }
+  set(
+    '<h2>'+
+    '日付を確認してください'+
+    '</h2>'+
 
-  return fallbackPlaceFromText(
-    text
+    '<div class="warning">'+
+    '「'+
+    esc(
+      dateInfo.source ||
+      "この日付表現"
+    )+
+    '」は複数の解釈があり得るので、勝手に日付を決めません。'+
+    '</div>'+
+
+    '<div class="card">'+
+
+      '<div class="label">'+
+      '対象'+
+      '</div>'+
+
+      '<div>'+
+      esc(
+        ai.target || "不明"
+      )+
+      '</div>'+
+
+      '<div class="label">'+
+      '場所'+
+      '</div>'+
+
+      '<div>'+
+      esc(
+        getPlace(
+          text,
+          ai
+        ) || "未指定"
+      )+
+      '</div>'+
+
+      '<div class="label">'+
+      '時刻'+
+      '</div>'+
+
+      '<div>'+
+      esc(
+        timeValue || "未指定"
+      )+
+      '</div>'+
+
+    '</div>'+
+
+    '<div class="label">'+
+    '正しい日付を選んでください'+
+    '</div>'+
+
+    '<input type="date" id="ambDate">'+
+
+    '<button class="primary" id="ambNext" style="margin-top:10px">'+
+    '確認へ'+
+    '</button>'
   );
+
+  document.getElementById(
+    "ambNext"
+  ).onclick =
+    function(){
+
+      var d =
+        document.getElementById(
+          "ambDate"
+        ).value;
+
+      if(!d){
+
+        alert(
+          "日付を選んでください"
+        );
+
+        return;
+      }
+
+      showAppointmentConfirm(
+        window.pendingAmbiguous.text,
+        window.pendingAmbiguous.ai,
+        {
+          value:d,
+          ambiguous:false,
+          source:d
+        },
+        window.pendingAmbiguous.time
+      );
+    };
 }
 
 function showAppointmentConfirm(
   text,
-  ai
+  ai,
+  dateInfo,
+  timeValue
 ){
 
   var p = {
 
     date:
-      normalizeDate(
-        ai.date_phrase || ""
-      ),
+      dateInfo &&
+      dateInfo.value
+      ? dateInfo.value
+      : "",
 
     time:
-      (
-        ai.time_phrase &&
-        ai.time_phrase !==
-        "時間不明"
-      )
-      ? ai.time_phrase
-      : "",
+      timeValue || "",
 
     target:
       (
@@ -776,7 +1166,10 @@ function showAppointmentConfirm(
       ),
 
     purpose:
-      ai.summary || text,
+      stablePurpose(
+        text,
+        ai
+      ),
 
     original:
       text
@@ -893,23 +1286,10 @@ function editAppointment(){
     '</div>'+
 
     '<select id="eTarget">'+
-
-      '<option>'+
-      '父'+
-      '</option>'+
-
-      '<option>'+
-      '母'+
-      '</option>'+
-
-      '<option>'+
-      '父と母'+
-      '</option>'+
-
-      '<option>'+
-      'その他'+
-      '</option>'+
-
+      '<option>父</option>'+
+      '<option>母</option>'+
+      '<option>父と母</option>'+
+      '<option>その他</option>'+
     '</select>'+
 
     '<div class="label">'+
@@ -1168,14 +1548,54 @@ function saveAppointment(){
 
 function showGeneralConfirm(
   text,
-  ai
+  ai,
+  dateInfo,
+  timeValue
 ){
 
   var placeDisplay =
     ai.place
-    ? '<div class="label">場所・関係先</div><div>'+
-      esc(ai.place)+
-      '</div>'
+    ? (
+        '<div class="label">'+
+        '場所・関係先'+
+        '</div>'+
+        '<div>'+
+        esc(
+          ai.place
+        )+
+        '</div>'
+      )
+    : '';
+
+  var dateDisplay =
+    (
+      dateInfo &&
+      dateInfo.value
+    )
+    ? (
+        '<div class="label">'+
+        '日付'+
+        '</div>'+
+        '<div>'+
+        esc(
+          dateInfo.value
+        )+
+        '</div>'
+      )
+    : '';
+
+  var timeDisplay =
+    timeValue
+    ? (
+        '<div class="label">'+
+        '時刻'+
+        '</div>'+
+        '<div>'+
+        esc(
+          timeValue
+        )+
+        '</div>'
+      )
     : '';
 
   set(
@@ -1194,6 +1614,10 @@ function showGeneralConfirm(
         ai.target || "不明"
       )+
       '</div>'+
+
+      dateDisplay+
+
+      timeDisplay+
 
       placeDisplay+
 
@@ -1231,14 +1655,14 @@ function showGeneralConfirm(
 
     (
       ai.question
-      ?
-      '<div class="notice">'+
-      esc(
-        ai.question
-      )+
-      '</div>'
-      :
-      ''
+      ? (
+          '<div class="notice">'+
+          esc(
+            ai.question
+          )+
+          '</div>'
+        )
+      : ''
     )
   );
 }
@@ -1253,10 +1677,14 @@ function showAppointments(){
 
           return (
             a.date+
-            a.time
+            (
+              a.time || ""
+            )
           ).localeCompare(
             b.date+
-            b.time
+            (
+              b.time || ""
+            )
           );
         }
       );
@@ -1270,7 +1698,6 @@ function showAppointments(){
       function(x){
 
         return (
-
           '<div class="card">'+
 
           '<b>'+
@@ -1316,7 +1743,6 @@ function showTodos(){
       function(x){
 
         return (
-
           '<div class="card">'+
 
           esc(
@@ -1717,13 +2143,10 @@ async function interpret(
 
   try{
 
-    var parsed =
-      JSON.parse(out);
-
     return new Response(
 
       JSON.stringify(
-        parsed
+        JSON.parse(out)
       ),
 
       {
